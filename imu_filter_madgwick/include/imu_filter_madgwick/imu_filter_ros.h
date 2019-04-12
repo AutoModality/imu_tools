@@ -58,6 +58,8 @@ class ImuFilterRos
     ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private);
     virtual ~ImuFilterRos();
 
+	sensor_msgs::Imu filterIMU(sensor_msgs::Imu *imu_msg_raw);
+
   private:
 
     // **** ROS-related

@@ -39,26 +39,26 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   if (!nh_private_.getParam ("stateless", stateless_))
     stateless_ = false;
   if (!nh_private_.getParam ("use_mag", use_mag_))
-   use_mag_ = true;
+   use_mag_ = false; //true;
   if (!nh_private_.getParam ("publish_tf", publish_tf_))
-   publish_tf_ = true;
+   publish_tf_ = false; //true;
   if (!nh_private_.getParam ("reverse_tf", reverse_tf_))
    reverse_tf_ = false;
   if (!nh_private_.getParam ("fixed_frame", fixed_frame_))
-   fixed_frame_ = "odom";
+   fixed_frame_ = "sc_FLU";
   if (!nh_private_.getParam ("constant_dt", constant_dt_))
     constant_dt_ = 0.0;
   if (!nh_private_.getParam ("publish_debug_topics", publish_debug_topics_))
     publish_debug_topics_= false;
   if (!nh_private_.getParam ("use_magnetic_field_msg", use_magnetic_field_msg_))
-    use_magnetic_field_msg_ = true;
+    use_magnetic_field_msg_ = false; //true;
 
   std::string world_frame;
   // Default should become false for next release
   if (!nh_private_.getParam ("world_frame", world_frame)) {
-    world_frame = "nwu";
-    ROS_WARN("Deprecation Warning: The parameter world_frame was not set, default is 'nwu'.");
-    ROS_WARN("Starting with ROS Lunar, world_frame will default to 'enu'!");
+    world_frame = "sc_FLU";
+    ROS_WARN("Deprecation Warning: The parameter world_frame was not set, default is 'sc_FLU'.");
+    ROS_WARN("Starting with ROS Lunar, world_frame will default to 'sc_FLU'!");
   }
 
   if (world_frame == "ned") {
@@ -67,10 +67,12 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
     world_frame_ = WorldFrame::NWU;
   } else if (world_frame == "enu"){
     world_frame_ = WorldFrame::ENU;
+  } else if (world_frame == "sc_FLU"){
+    world_frame_ = WorldFrame::SC_FLU;
   } else {
     ROS_ERROR("The parameter world_frame was set to invalid value '%s'.", world_frame.c_str());
-    ROS_ERROR("Valid values are 'enu', 'ned' and 'nwu'. Setting to 'enu'.");
-    world_frame_ = WorldFrame::ENU;
+    ROS_ERROR("Valid values are 'enu', 'ned', 'nwu' and 'sc_FLU'. Setting to 'sc_FLU'.");
+    world_frame_ = WorldFrame::SC_FLU;
   }
   filter_.setWorldFrame(world_frame_);
 
@@ -94,8 +96,7 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   config_server_->setCallback(f);
 
   // **** register publishers
-  imu_publisher_ = nh_.advertise<sensor_msgs::Imu>(
-    ros::names::resolve("imu") + "/data", 5);
+  imu_publisher_ = nh_.advertise<sensor_msgs::Imu>(ros::names::resolve("imu") + "/data" + "/madgwick", 5);
 
   if (publish_debug_topics_)
   {
@@ -405,4 +406,79 @@ void ImuFilterRos::checkTopicsTimerCallback(const ros::TimerEvent&)
                     << " and " << ros::names::resolve("imu") << "/mag" << "...");
   else
     ROS_WARN_STREAM("Still waiting for data on topic " << ros::names::resolve("imu") << "/data_raw" << "...");
+}
+
+sensor_msgs::Imu ImuFilterRos::filterIMU(sensor_msgs::Imu *imu_msg_raw)
+{
+  boost::mutex::scoped_lock lock(mutex_);
+
+  const geometry_msgs::Vector3& ang_vel = imu_msg_raw->angular_velocity;
+  const geometry_msgs::Vector3& lin_acc = imu_msg_raw->linear_acceleration;
+
+  ros::Time time = imu_msg_raw->header.stamp;
+  imu_frame_ = imu_msg_raw->header.frame_id;
+
+  if (!initialized_ || stateless_)
+  {
+    geometry_msgs::Quaternion init_q;
+    if (!StatelessOrientation::computeOrientation(world_frame_, lin_acc, init_q))
+    {
+      ROS_WARN_THROTTLE(5.0, "The IMU seems to be in free fall, cannot determine gravity direction!");
+      return *imu_msg_raw;
+    }
+    filter_.setOrientation(init_q.w, init_q.x, init_q.y, init_q.z);
+  }
+
+  if (!initialized_)
+  {
+    ROS_INFO("First IMU message received.");
+    check_topics_timer_.stop();
+
+    // initialize time
+    last_time_ = time;
+    initialized_ = true;
+  }
+
+  // determine dt: either constant, or from IMU timestamp
+  float dt;
+  if (constant_dt_ > 0.0)
+    dt = constant_dt_;
+  else
+  {
+    dt = (time - last_time_).toSec();
+    if (time.isZero())
+      ROS_WARN_STREAM_THROTTLE(5.0, "The IMU message time stamp is zero, and the parameter constant_dt is not set!" <<
+                                    " The filter will not update the orientation.");
+  }
+
+  last_time_ = time;
+
+  if (!stateless_)
+    filter_.madgwickAHRSupdateIMU(
+      ang_vel.x, ang_vel.y, ang_vel.z,
+      lin_acc.x, lin_acc.y, lin_acc.z,
+      dt);
+
+  double q0,q1,q2,q3;
+  filter_.getOrientation(q0,q1,q2,q3);
+
+  // create and publish filtered IMU message
+  boost::shared_ptr<ImuMsg> imu_msg = boost::make_shared<ImuMsg>(*imu_msg_raw);
+
+  imu_msg->orientation.w = q0;
+  imu_msg->orientation.x = q1;
+  imu_msg->orientation.y = q2;
+  imu_msg->orientation.z = q3;
+
+  imu_msg->orientation_covariance[0] = orientation_variance_;
+  imu_msg->orientation_covariance[1] = 0.0;
+  imu_msg->orientation_covariance[2] = 0.0;
+  imu_msg->orientation_covariance[3] = 0.0;
+  imu_msg->orientation_covariance[4] = orientation_variance_;
+  imu_msg->orientation_covariance[5] = 0.0;
+  imu_msg->orientation_covariance[6] = 0.0;
+  imu_msg->orientation_covariance[7] = 0.0;
+  imu_msg->orientation_covariance[8] = orientation_variance_;
+
+  return *imu_msg;
 }

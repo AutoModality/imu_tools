@@ -49,7 +49,7 @@ ComplementaryFilterROS::ComplementaryFilterROS(
   int queue_size = 5;
 
   // Register publishers:
-  imu_publisher_ = nh_.advertise<sensor_msgs::Imu>(ros::names::resolve("imu") + "/data", queue_size);
+  imu_publisher_ = nh_.advertise<sensor_msgs::Imu>(ros::names::resolve("imu") + "/data" + "/complementary", queue_size);
 
   if (publish_debug_topics_)
   {
@@ -97,7 +97,7 @@ void ComplementaryFilterROS::initializeParams()
   bool do_adaptive_gain;
 
   if (!nh_private_.getParam ("fixed_frame", fixed_frame_))
-    fixed_frame_ = "odom";
+    fixed_frame_ = "sc_FLU";
   if (!nh_private_.getParam ("use_mag", use_mag_))
     use_mag_ = false;
   if (!nh_private_.getParam ("publish_tf", publish_tf_))
@@ -301,5 +301,65 @@ void ComplementaryFilterROS::publish(
       }
   }
 }
+
+//sensor_msgs::Imu ComplementaryFilterROS::filterIMU(const sensor_msgs::Imu::ConstPtr& imu_msg_raw)
+//sensor_msgs::Imu ComplementaryFilterROS::filterIMU(sensor_msgs::Imu& imu_msg_raw)
+sensor_msgs::Imu ComplementaryFilterROS::filterIMU(sensor_msgs::Imu *imu_msg_raw)
+{
+  const geometry_msgs::Vector3& a = imu_msg_raw->linear_acceleration;
+  const geometry_msgs::Vector3& w = imu_msg_raw->angular_velocity;
+  const ros::Time& time = imu_msg_raw->header.stamp;
+
+  // Initialize.
+  if (!initialized_filter_)
+  {
+    time_prev_ = time;
+    initialized_filter_ = true;
+    return *imu_msg_raw;
+  }
+
+  // determine dt: either constant, or from IMU timestamp
+  double dt;
+  if (constant_dt_ > 0.0)
+    dt = constant_dt_;
+  else
+    dt = (time - time_prev_).toSec();
+
+  time_prev_ = time;
+
+  // Update the filter.
+  filter_.update(a.x, a.y, a.z, w.x, w.y, w.z, dt);
+
+  // Get the orientation:
+  double q0, q1, q2, q3;
+  filter_.getOrientation(q0, q1, q2, q3);
+  tf::Quaternion q = hamiltonToTFQuaternion(q0, q1, q2, q3);
+
+  // Create and publish fitlered IMU message.
+  boost::shared_ptr<sensor_msgs::Imu> imu_msg = boost::make_shared<sensor_msgs::Imu>(*imu_msg_raw);
+  //sensor_msgs::Imu *imu_msg = imu_msg_raw;
+  tf::quaternionTFToMsg(q, imu_msg->orientation);
+
+  imu_msg->orientation_covariance[0] = orientation_variance_;
+  imu_msg->orientation_covariance[1] = 0.0;
+  imu_msg->orientation_covariance[2] = 0.0;
+  imu_msg->orientation_covariance[3] = 0.0;
+  imu_msg->orientation_covariance[4] = orientation_variance_;
+  imu_msg->orientation_covariance[5] = 0.0;
+  imu_msg->orientation_covariance[6] = 0.0;
+  imu_msg->orientation_covariance[7] = 0.0;
+  imu_msg->orientation_covariance[8] = orientation_variance_;
+
+  // Account for biases.
+  if (filter_.getDoBiasEstimation())
+  {
+    imu_msg->angular_velocity.x -= filter_.getAngularVelocityBiasX();
+    imu_msg->angular_velocity.y -= filter_.getAngularVelocityBiasY();
+    imu_msg->angular_velocity.z -= filter_.getAngularVelocityBiasZ();
+  }
+
+  return *imu_msg;
+}
+
 
 }  // namespace imu_tools

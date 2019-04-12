@@ -49,9 +49,16 @@ namespace imu_tools {
 class ComplementaryFilterROS
 {
   public:
+	ComplementaryFilterROS() {}
     ComplementaryFilterROS(const ros::NodeHandle& nh, 
                            const ros::NodeHandle& nh_private);    
     virtual ~ComplementaryFilterROS();
+    //void setNodeHandle(ros::NodeHandle nh) {nh_ = nh;}
+    //void setPrivateNodeHandle(ros::NodeHandle nh_private) {nh_private_ = nh_private;}
+
+    //sensor_msgs::Imu filterIMU(const sensor_msgs::Imu::ConstPtr& imu_msg_raw);
+    //sensor_msgs::Imu filterIMU(sensor_msgs::Imu& imu_msg_raw);
+    sensor_msgs::Imu filterIMU(sensor_msgs::Imu *imu_msg_raw);
 
   private:
 
