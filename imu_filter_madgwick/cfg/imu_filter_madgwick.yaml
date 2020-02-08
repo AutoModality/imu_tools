@@ -1,0 +1,8 @@
+world_frame: 'enu'
+stateless: false
+use_mag: false
+publish_tf: true
+reverse_tf: false
+remove_gravity_vector: false
+
+publish_debug_topics: true

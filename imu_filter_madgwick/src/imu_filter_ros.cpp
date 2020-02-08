@@ -39,15 +39,17 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   if (!nh_private_.getParam ("stateless", stateless_))
     stateless_ = false;
   if (!nh_private_.getParam ("use_mag", use_mag_))
-   use_mag_ = false; //true;
+   use_mag_ = true;
   if (!nh_private_.getParam ("publish_tf", publish_tf_))
-   publish_tf_ = false; //true;
+   publish_tf_ = true;
   if (!nh_private_.getParam ("reverse_tf", reverse_tf_))
    reverse_tf_ = false;
   if (!nh_private_.getParam ("fixed_frame", fixed_frame_))
    fixed_frame_ = "sc_FLU";
   if (!nh_private_.getParam ("constant_dt", constant_dt_))
     constant_dt_ = 0.0;
+  if (!nh_private_.getParam ("remove_gravity_vector", remove_gravity_vector_))
+    remove_gravity_vector_= false;
   if (!nh_private_.getParam ("publish_debug_topics", publish_debug_topics_))
     publish_debug_topics_= false;
   if (!nh_private_.getParam ("use_magnetic_field_msg", use_magnetic_field_msg_))
@@ -90,6 +92,11 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   else
     ROS_INFO("Using constant dt of %f sec", constant_dt_);
 
+  if (remove_gravity_vector_)
+    ROS_INFO("The gravity vector will be removed from the acceleration");
+  else
+    ROS_INFO("The gravity vector is kept in the IMU message.");
+
   // **** register dynamic reconfigure
   config_server_.reset(new FilterConfigServer(nh_private_));
   FilterConfigServer::CallbackType f = boost::bind(&ImuFilterRos::reconfigCallback, this, _1, _2);
@@ -112,7 +119,7 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   int queue_size = 5;
 
   imu_subscriber_.reset(new ImuSubscriber(
-    nh_, ros::names::resolve("imu") + "/data_raw", queue_size));
+    nh_, "/mavros/imu/data", queue_size));
 
   if (use_mag_)
   {
@@ -347,6 +354,15 @@ void ImuFilterRos::publishFilteredMsg(const ImuMsg::ConstPtr& imu_msg_raw)
   imu_msg->orientation_covariance[6] = 0.0;
   imu_msg->orientation_covariance[7] = 0.0;
   imu_msg->orientation_covariance[8] = orientation_variance_;
+
+
+  if(remove_gravity_vector_) {
+    float gx, gy, gz;
+    filter_.getGravity(gx, gy, gz);
+    imu_msg->linear_acceleration.x -= gx;
+    imu_msg->linear_acceleration.y -= gy;
+    imu_msg->linear_acceleration.z -= gz;
+  }
 
   imu_publisher_.publish(imu_msg);
 
