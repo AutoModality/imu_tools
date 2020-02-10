@@ -51,7 +51,9 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   if (!nh_private_.getParam ("publish_debug_topics", publish_debug_topics_))
     publish_debug_topics_= false;
   if (!nh_private_.getParam ("use_magnetic_field_msg", use_magnetic_field_msg_))
-    use_magnetic_field_msg_ = false; //true;
+    use_magnetic_field_msg_ = false;
+  if (!nh_private_.getParam ("imu_input_topic", imu_input_topic_))
+    imu_input_topic_ = "/imu/data_raw";
 
   std::string world_frame;
   // Default should become false for next release
@@ -111,8 +113,7 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   // Synchronize inputs. Topic subscriptions happen on demand in the connection callback.
   int queue_size = 5;
 
-  imu_subscriber_.reset(new ImuSubscriber(
-    nh_, "/mavros/imu/data", queue_size));
+  imu_subscriber_.reset(new ImuSubscriber(nh_, imu_input_topic_, queue_size));
 
   if (use_mag_)
   {
@@ -402,10 +403,10 @@ void ImuFilterRos::imuMagVectorCallback(const MagVectorMsg::ConstPtr& mag_vector
 void ImuFilterRos::checkTopicsTimerCallback(const ros::TimerEvent&)
 {
   if (use_mag_)
-    ROS_WARN_STREAM("Still waiting for data on topics " << ros::names::resolve("imu") << "/data_raw"
+    ROS_WARN_STREAM("Still waiting for data on topics " << imu_input_topic_
                     << " and " << ros::names::resolve("imu") << "/mag" << "...");
   else
-    ROS_WARN_STREAM("Still waiting for data on topic " << ros::names::resolve("imu") << "/data_raw" << "...");
+    ROS_WARN_STREAM("Still waiting for data on topic " << imu_input_topic_ << "...");
 }
 
 sensor_msgs::Imu ImuFilterRos::filterIMU(sensor_msgs::Imu *imu_msg_raw)

@@ -6,3 +6,5 @@ reverse_tf: false
 remove_gravity_vector: false
 
 publish_debug_topics: true
+
+imu_input_topic: '/mavros/imu/data'
