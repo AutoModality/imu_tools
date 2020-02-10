@@ -194,19 +194,26 @@ void ImuFilterRos::imuCallback(const ImuMsg::ConstPtr& imu_msg_raw)
   else
   {
     dt = (time - last_time_).toSec();
-    if (time.isZero())
-      ROS_WARN_STREAM_THROTTLE(5.0, "The IMU message time stamp is zero, and the parameter constant_dt is not set!" <<
-                                    " The filter will not update the orientation.");
+    if (time.isZero()) {
+      ROS_WARN_STREAM_THROTTLE(1,"The IMU message time stamp is zero, and the parameter constant_dt is not set!" <<
+                                  " The filter will not update the orientation.");
+      return;
+    }
   }
-
+  
   last_time_ = time;
 
-  if (!stateless_)
+  // Do not update filters if dt is too large. Usually caused by a previous zero time stamp.
+  if (dt > 1.0)
+    return;
+
+  if (!stateless_) {
     filter_.madgwickAHRSupdateIMU(
       ang_vel.x, ang_vel.y, ang_vel.z,
       lin_acc.x, lin_acc.y, lin_acc.z,
       dt);
-
+  }
+  
   publishFilteredMsg(imu_msg_raw);
   if (publish_tf_)
     publishTransform(imu_msg_raw);
