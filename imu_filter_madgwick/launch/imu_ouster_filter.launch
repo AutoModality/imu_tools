@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="imu_filter_madgwick" name="imu_filter" type="imu_filter_node"  output="screen">
+    	<rosparam command="load" file="$(find imu_filter_madgwick)/cfg/imu_ouster_filter_madgwick.yaml" />
+		<remap from="/imu/data/madgwick" to="/os1/imu_filtered" />
+   	</node>
+</launch>

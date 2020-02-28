@@ -1,0 +1,9 @@
+world_frame: 'enu'
+stateless: false
+use_mag: false
+publish_tf: true
+reverse_tf: false
+
+publish_debug_topics: true
+
+imu_input_topic: '/os1_cloud_node/imu'

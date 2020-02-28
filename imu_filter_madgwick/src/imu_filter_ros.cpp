@@ -39,9 +39,9 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   if (!nh_private_.getParam ("stateless", stateless_))
     stateless_ = false;
   if (!nh_private_.getParam ("use_mag", use_mag_))
-   use_mag_ = false; //true;
+   use_mag_ = true;
   if (!nh_private_.getParam ("publish_tf", publish_tf_))
-   publish_tf_ = false; //true;
+   publish_tf_ = true;
   if (!nh_private_.getParam ("reverse_tf", reverse_tf_))
    reverse_tf_ = false;
   if (!nh_private_.getParam ("fixed_frame", fixed_frame_))
@@ -51,7 +51,9 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   if (!nh_private_.getParam ("publish_debug_topics", publish_debug_topics_))
     publish_debug_topics_= false;
   if (!nh_private_.getParam ("use_magnetic_field_msg", use_magnetic_field_msg_))
-    use_magnetic_field_msg_ = false; //true;
+    use_magnetic_field_msg_ = false;
+  if (!nh_private_.getParam ("imu_input_topic", imu_input_topic_))
+    imu_input_topic_ = "/imu/data_raw";
 
   std::string world_frame;
   // Default should become false for next release
@@ -111,8 +113,7 @@ ImuFilterRos::ImuFilterRos(ros::NodeHandle nh, ros::NodeHandle nh_private):
   // Synchronize inputs. Topic subscriptions happen on demand in the connection callback.
   int queue_size = 5;
 
-  imu_subscriber_.reset(new ImuSubscriber(
-    nh_, ros::names::resolve("imu") + "/data_raw", queue_size));
+  imu_subscriber_.reset(new ImuSubscriber(nh_, imu_input_topic_, queue_size));
 
   if (use_mag_)
   {
@@ -193,19 +194,26 @@ void ImuFilterRos::imuCallback(const ImuMsg::ConstPtr& imu_msg_raw)
   else
   {
     dt = (time - last_time_).toSec();
-    if (time.isZero())
-      ROS_WARN_STREAM_THROTTLE(5.0, "The IMU message time stamp is zero, and the parameter constant_dt is not set!" <<
-                                    " The filter will not update the orientation.");
+    if (time.isZero()) {
+      ROS_WARN_STREAM_THROTTLE(1,"The IMU message time stamp is zero, and the parameter constant_dt is not set!" <<
+                                  " The filter will not update the orientation.");
+      return;
+    }
   }
-
+  
   last_time_ = time;
 
-  if (!stateless_)
+  // Do not update filters if dt is too large. Usually caused by a previous zero time stamp.
+  if (dt > 1.0)
+    return;
+
+  if (!stateless_) {
     filter_.madgwickAHRSupdateIMU(
       ang_vel.x, ang_vel.y, ang_vel.z,
       lin_acc.x, lin_acc.y, lin_acc.z,
       dt);
-
+  }
+  
   publishFilteredMsg(imu_msg_raw);
   if (publish_tf_)
     publishTransform(imu_msg_raw);
@@ -402,10 +410,10 @@ void ImuFilterRos::imuMagVectorCallback(const MagVectorMsg::ConstPtr& mag_vector
 void ImuFilterRos::checkTopicsTimerCallback(const ros::TimerEvent&)
 {
   if (use_mag_)
-    ROS_WARN_STREAM("Still waiting for data on topics " << ros::names::resolve("imu") << "/data_raw"
+    ROS_WARN_STREAM("Still waiting for data on topics " << imu_input_topic_
                     << " and " << ros::names::resolve("imu") << "/mag" << "...");
   else
-    ROS_WARN_STREAM("Still waiting for data on topic " << ros::names::resolve("imu") << "/data_raw" << "...");
+    ROS_WARN_STREAM("Still waiting for data on topic " << imu_input_topic_ << "...");
 }
 
 sensor_msgs::Imu ImuFilterRos::filterIMU(sensor_msgs::Imu *imu_msg_raw)
